@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>ysf-weather player</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}#p{position:fixed;left:0;top:0;width:200px;height:200px}</style>
+</head>
+<body>
+<div id="p"></div>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+// صفحة المشغّل: ترفعها على استضافة https (مثل GitHub Pages) وتحط رابطها في Config.Music.PlayerUrl
+let player = null, apiReady = false, ready = false, want = null, curId = null, timer = null;
+const up = m => { try { parent.postMessage(Object.assign({ ysf: 1 }, m), '*'); } catch (e) {} };
+
+window.onYouTubeIframeAPIReady = () => { apiReady = true; if (want) build(); };
+
+function build() {
+  if (player || !want) return;
+  curId = want.id;
+  player = new YT.Player('p', {
+    width: '200', height: '200', videoId: want.id,
+    playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3, origin: location.origin },
+    events: {
+      onReady: () => { ready = true; applyWant(true); up({ type: 'ready' }); },
+      onStateChange: e => {
+        if (e.data === 0 && want && want.loop) { player.seekTo(0, true); player.playVideo(); }
+        if (e.data === 1 && want && want.paused) player.pauseVideo();
+      },
+      onError: e => up({ type: 'error', code: e.data })
+    }
+  });
+}
+
+function applyWant(fresh) {
+  if (!ready || !want) return;
+  player.unMute();
+  player.setVolume(want.volume);
+  if (fresh || curId !== want.id) {
+    curId = want.id;
+    player.loadVideoById({ videoId: want.id, startSeconds: want.start || 0 });
+  }
+  if (want.paused) player.pauseVideo(); else player.playVideo();
+}
+
+addEventListener('message', e => {
+  const d = e.data;
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'play') {
+    if (!/^[\w-]{11}$/.test(d.id)) return;
+    want = { id: d.id, start: Math.max(0, Math.floor(d.start || 0)), loop: !!d.loop, volume: +d.volume || 0, paused: !!d.paused };
+    if (!apiReady) return;
+    if (!player) build(); else applyWant(true);
+  } else if (d.type === 'state' && want) {
+    want.volume = +d.volume || 0; want.paused = !!d.paused; want.loop = !!d.loop;
+    applyWant(false);
+  } else if (d.type === 'stop') {
+    want = null;
+    if (ready) player.stopVideo();
+  } else if (d.type === 'ping') {
+    up({ type: 'hello' });
+  }
+});
+
+up({ type: 'hello' });
+
+setInterval(() => {
+  if (!ready || !want) return;
+  try {
+    up({ type: 'status', title: (player.getVideoData() || {}).title || '', time: player.getCurrentTime(), duration: player.getDuration(), state: player.getPlayerState() });
+  } catch (e) {}
+}, 1000);
+</script>
+</body>
+</html>
